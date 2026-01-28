@@ -43,13 +43,7 @@
       overflow:hidden;
       position:relative;
     }
-    .panel::before{
-      content:"";
-      position:absolute; inset:-2px;
-      background: radial-gradient(600px 240px at 30% 10%, #7c5cff22, transparent 60%),
-                  radial-gradient(500px 220px at 70% 0%, #ff5e7a1f, transparent 60%);
-      pointer-events:none;
-    }
+
     .header{
       padding:22px 22px 16px 22px;
       border-bottom:1px solid var(--stroke);
@@ -111,8 +105,6 @@
       height:auto;
       display:block;
       border-radius:999px;
-      background:#0b1020;
-      box-shadow: 0 30px 80px #00000066;
     }
     .pointer{
       position:absolute;
@@ -213,8 +205,8 @@
   <div class="wrap">
     <div class="panel">
       <div class="header">
-        <h1 class="title">🎁 Розыгрыш Battle Pass</h1>
-        <p class="subtitle">Нажми «Крутить» — колесо красиво выберет победителя из списка участников.</p>
+        <h1 class="title">🎁 Розыгрыш Battle Pass в Will of Salem</h1>
+        <p class="subtitle">Крутить колесо</p>
       </div>
 
       <div class="wheelWrap">
@@ -226,9 +218,11 @@
 
       <div class="content">
         <div class="row">
-          <button id="spinBtn" class="btn primary">Крутить колесо</button>
-          <button id="reshuffleBtn" class="btn">Перемешать цвета</button>
-          <span class="hint" id="status">Готово.</span>
+            <button id="spinBtn" class="btn primary">Крутить (выбывание)</button>
+            <button id="undoBtn" class="btn" disabled>Вернуть последнего</button>
+            <button id="resetBtn" class="btn">Сброс</button>
+            <button id="reshuffleBtn" class="btn">Перемешать цвета</button>
+            <span class="hint" id="status">Готово.</span>
         </div>
       </div>
     </div>
@@ -236,12 +230,12 @@
     <div class="panel">
       <div class="header">
         <h2 class="title" style="font-size:22px;margin:0 0 6px;">Участники</h2>
-        <p class="subtitle">Список фиксированный. Результат выбирается честно (рандом) и колесо докручивается на победителя.</p>
+        <p class="subtitle">Список фиксированный. Результат выбирается честно (рандом).</p>
       </div>
       <div class="content">
         <div class="list" id="chips"></div>
         <p class="hint" style="margin-top:14px;">
-          Хостинг без домена: GitHub Pages / Cloudflare Pages / Netlify.
+          by Yeshkenbay Angsar
         </p>
       </div>
     </div>
@@ -262,305 +256,391 @@
   </div>
 
   <script>
-    // ----------------------------
-    // Data
-    // ----------------------------
-    const participants = [
-      "LOGAN","Denis","Ricardo-Milo$$$","Postal","Angsar","Фёдоров Сергей","Samurai","Vagёr",
-      "Виктория","MARSHMALLOWS","Кот Бегемот","Golovorez","DenZilla","Laud","kkkk"
-    ];
+  // ----------------------------
+  // Data (исходный список)
+  // ----------------------------
+  const initialParticipants = [
+    "LOGAN","Denis","Ricardo-Milo$$$","Postal","Angsar","Фёдоров Сергей","Samurai","Vagёr",
+    "Виктория","MARSHMALLOWS","Кот Бегемот","Golovorez","DenZilla","Laud","kkkk"
+  ];
 
-    // Render participant chips
-    const chips = document.getElementById('chips');
+  // рабочий список (будем удалять)
+  let participants = [...initialParticipants];
+  let eliminatedStack = []; // для "вернуть последнего"
+
+  // Render participant chips
+  const chips = document.getElementById('chips');
+  function renderChips(){
+    chips.innerHTML = "";
     participants.forEach(n => {
       const span = document.createElement('span');
       span.className = 'chip';
       span.textContent = n;
       chips.appendChild(span);
     });
+  }
+  renderChips();
 
-    // ----------------------------
-    // Wheel drawing
-    // ----------------------------
-    const canvas = document.getElementById('wheel');
-    const ctx = canvas.getContext('2d');
+  // ----------------------------
+  // Wheel drawing
+  // ----------------------------
+  const canvas = document.getElementById('wheel');
+  const ctx = canvas.getContext('2d');
 
-    const W = canvas.width;
-    const H = canvas.height;
-    const cx = W/2, cy = H/2;
-    const radius = Math.min(W, H) * 0.42;
+  const W = canvas.width;
+  const H = canvas.height;
+  const cx = W/2, cy = H/2;
+  const radius = Math.min(W, H) * 0.42;
 
-    let angle = Math.random() * Math.PI * 2;
-    let paletteSeed = Math.random() * 1000;
+  let angle = Math.random() * Math.PI * 2;
+  let paletteSeed = Math.random() * 1000;
 
-    function hsl(i, n){
-      // vivid but soft
-      const hue = ( (i / n) * 360 + paletteSeed ) % 360;
-      return `hsl(${hue} 85% 55%)`;
-    }
+  function hsl(i, n){
+    const hue = ((i / n) * 360 + paletteSeed) % 360;
+    return `hsl(${hue} 85% 55%)`;
+  }
 
-    function fitLabel(text, maxChars){
-      if (text.length <= maxChars) return text;
-      return text.slice(0, Math.max(1, maxChars - 1)).trim() + "…";
-    }
+  function fitLabel(text, maxChars){
+    if (text.length <= maxChars) return text;
+    return text.slice(0, Math.max(1, maxChars - 1)).trim() + "…";
+  }
 
-    function drawWheel(){
-      ctx.clearRect(0,0,W,H);
+  function drawWheel(){
+    ctx.clearRect(0,0,W,H);
 
-      // shadow + ring
+    // empty state
+    if (participants.length === 0){
       ctx.save();
       ctx.translate(cx, cy);
+      ctx.fillStyle = "rgba(255,255,255,0.85)";
+      ctx.font = "900 34px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("Нет участников", 0, 0);
+      ctx.restore();
+      return;
+    }
+
+    // shadow + ring
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.beginPath();
+    ctx.arc(0, 10, radius + 26, 0, Math.PI*2);
+    ctx.fillStyle = "rgba(0,0,0,0.55)";
+    ctx.fill();
+    ctx.restore();
+
+    // outer ring
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.beginPath();
+    ctx.arc(0, 0, radius + 18, 0, Math.PI*2);
+    ctx.fillStyle = "#23283b";
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(0, 0, radius + 10, 0, Math.PI*2);
+    ctx.fillStyle = "#11162a";
+    ctx.fill();
+    ctx.restore();
+
+    const n = participants.length;
+    const step = (Math.PI*2)/n;
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(angle);
+
+    for(let i=0;i<n;i++){
+      const start = -Math.PI/2 + i*step;
+      const end = start + step;
+
+      // sector
       ctx.beginPath();
-      ctx.arc(0, 10, radius + 26, 0, Math.PI*2);
+      ctx.moveTo(0,0);
+      ctx.arc(0,0,radius,start,end);
+      ctx.closePath();
+      ctx.fillStyle = hsl(i,n);
+      ctx.fill();
+
+      ctx.strokeStyle = "rgba(0,0,0,0.25)";
+      ctx.lineWidth = 3;
+      ctx.stroke();
+
+      // label (оставляем как у тебя: по касательной)
+      const mid = (start+end)/2;
+      ctx.save();
+      ctx.rotate(mid);
+
+      const name = participants[i];
+      const label = fitLabel(name, 14);
+
+      // авто-уменьшение шрифта (чтобы не "ломалось")
+      let fontSize = 26;
+      if (name.length > 12) fontSize = 22;
+      if (name.length > 14) fontSize = 20;
+      if (name.length > 16) fontSize = 18;
+
+      ctx.font = `900 ${fontSize}px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.translate(radius*0.70, 0);
+
+      ctx.rotate(Math.PI/2);
+
+      // тень + текст
       ctx.fillStyle = "rgba(0,0,0,0.55)";
-      ctx.fill();
-      ctx.restore();
+      ctx.fillText(label, 2, 2);
+      ctx.fillStyle = "rgba(0,0,0,0.75)";
+      ctx.fillText(label, 0, 0);
 
-      // outer ring
-      ctx.save();
-      ctx.translate(cx, cy);
-      ctx.beginPath();
-      ctx.arc(0, 0, radius + 18, 0, Math.PI*2);
-      ctx.fillStyle = "#23283b";
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(0, 0, radius + 10, 0, Math.PI*2);
-      ctx.fillStyle = "#11162a";
-      ctx.fill();
-      ctx.restore();
-
-      const n = participants.length;
-      const step = (Math.PI*2)/n;
-
-      ctx.save();
-      ctx.translate(cx, cy);
-      ctx.rotate(angle);
-
-      for(let i=0;i<n;i++){
-        const start = -Math.PI/2 + i*step;
-        const end = start + step;
-
-        // sector
-        ctx.beginPath();
-        ctx.moveTo(0,0);
-        ctx.arc(0,0,radius,start,end);
-        ctx.closePath();
-        ctx.fillStyle = hsl(i,n);
-        ctx.fill();
-
-        ctx.strokeStyle = "rgba(0,0,0,0.25)";
-        ctx.lineWidth = 3;
-        ctx.stroke();
-
-        // label
-        const mid = (start+end)/2;
-        ctx.save();
-        ctx.rotate(mid);
-
-        const name = participants[i];
-        // auto-max chars by radius and name length (simple)
-        const label = fitLabel(name, 14);
-
-        ctx.font = "bold 26px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial";
-        ctx.fillStyle = "rgba(0,0,0,0.75)";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.translate(radius*0.70, 0);
-
-        // rotate text upright
-        ctx.rotate(Math.PI/2);
-
-        ctx.fillText(label, 0, 0);
-        ctx.restore();
-      }
-      ctx.restore();
-
-      // hub
-      ctx.save();
-      ctx.translate(cx, cy);
-      ctx.beginPath();
-      ctx.arc(0,0,30,0,Math.PI*2);
-      ctx.fillStyle="#0f1324";
-      ctx.fill();
-      ctx.beginPath();
-      ctx.arc(0,0,12,0,Math.PI*2);
-      ctx.fillStyle="#f2f4ff";
-      ctx.fill();
       ctx.restore();
     }
+    ctx.restore();
 
-    drawWheel();
+    // hub
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.beginPath();
+    ctx.arc(0,0,30,0,Math.PI*2);
+    ctx.fillStyle="#0f1324";
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(0,0,12,0,Math.PI*2);
+    ctx.fillStyle="#f2f4ff";
+    ctx.fill();
+    ctx.restore();
+  }
 
-    // ----------------------------
-    // Spin logic (fair choice + animate to target)
-    // ----------------------------
-    const spinBtn = document.getElementById('spinBtn');
-    const reshuffleBtn = document.getElementById('reshuffleBtn');
-    const statusEl = document.getElementById('status');
+  drawWheel();
 
-    const modal = document.getElementById('modal');
-    const winnerName = document.getElementById('winnerName');
-    const winnerText = document.getElementById('winnerText');
-    const closeModal = document.getElementById('closeModal');
-    const spinAgain = document.getElementById('spinAgain');
-    const copyWinner = document.getElementById('copyWinner');
+  // ----------------------------
+  // Spin logic (выбывание)
+  // ----------------------------
+  const spinBtn = document.getElementById('spinBtn');
+  const reshuffleBtn = document.getElementById('reshuffleBtn');
+  const statusEl = document.getElementById('status');
+  const undoBtn = document.getElementById('undoBtn');
+  const resetBtn = document.getElementById('resetBtn');
 
-    let spinning = false;
-    let lastWinner = null;
+  const modal = document.getElementById('modal');
+  const winnerName = document.getElementById('winnerName');
+  const winnerText = document.getElementById('winnerText');
+  const closeModal = document.getElementById('closeModal');
+  const spinAgain = document.getElementById('spinAgain');
+  const copyWinner = document.getElementById('copyWinner');
 
-    function easeOutCubic(t){ return 1 - Math.pow(1-t, 3); }
+  let spinning = false;
+  let lastWinner = null;
 
-    function pickWinner(){
-      const idx = Math.floor(Math.random() * participants.length);
-      return { name: participants[idx], idx };
+  function easeOutCubic(t){ return 1 - Math.pow(1-t, 3); }
+
+  function pickIndex(){
+    return Math.floor(Math.random() * participants.length);
+  }
+
+  function targetAngleForIndex(index){
+    const n = participants.length;
+    const step = (Math.PI*2)/n;
+    const sectorCenter = (-Math.PI/2) + index*step + step/2;
+    const base = (-Math.PI/2) - sectorCenter;
+    const turns = 7 + Math.floor(Math.random()*6); // 7..12 (чуть быстрее)
+    return base + turns * Math.PI * 2;
+  }
+
+  function openModal(title, text){
+    winnerName.textContent = title;
+    winnerText.textContent = text;
+    modal.classList.add('show');
+  }
+
+  function closeWinner(){ modal.classList.remove('show'); }
+
+  function updateButtons(){
+    undoBtn.disabled = eliminatedStack.length === 0 || spinning;
+    spinBtn.disabled = spinning || participants.length <= 1; // когда 1 остался — уже победитель
+  }
+
+  function finalizeIfOneLeft(){
+    if (participants.length === 1){
+      const champ = participants[0];
+      lastWinner = champ;
+      statusEl.textContent = `Победитель: ${champ}`;
+      openModal(champ, "🏆 Победитель! Поздравляем! 🎉");
+      startConfetti(2200);
+      updateButtons();
+      return true;
+    }
+    return false;
+  }
+
+  function eliminateFlow(){
+    if (spinning) return;
+    if (participants.length <= 1){
+      finalizeIfOneLeft();
+      return;
     }
 
-    function targetAngleForIndex(index){
-      // pointer fixed at top (-pi/2). We want the sector center to align under it.
-      const n = participants.length;
-      const step = (Math.PI*2)/n;
+    spinning = true;
+    updateButtons();
+    reshuffleBtn.disabled = true;
+    resetBtn.disabled = true;
+    statusEl.textContent = "Крутим…";
 
-      // Sector i center in wheel coordinates:
-      const sectorCenter = (-Math.PI/2) + index*step + step/2;
+    const idx = pickIndex();
+    const pickedName = participants[idx];
 
-      // Wheel rotates by 'angle', so final alignment means:
-      // sectorCenter + angle == -Math.PI/2  (pointer direction in world before rotate)
-      // => angle == -Math.PI/2 - sectorCenter
-      const base = (-Math.PI/2) - sectorCenter;
+    const start = angle;
+    const end = targetAngleForIndex(idx);
+    const duration = 5200;
+    const startTime = performance.now();
 
-      const turns = 8 + Math.floor(Math.random()*6); // 8..13
-      return base + turns * Math.PI * 2;
-    }
+    function frame(now){
+      const t = Math.min(1, (now - startTime)/duration);
+      const e = easeOutCubic(t);
+      angle = start + (end - start) * e;
+      drawWheel();
 
-    function openWinner(name){
-      lastWinner = name;
-      winnerName.textContent = name;
-      winnerText.textContent = "Поздравляем! 🎉 Забирай Battle Pass.";
-      modal.classList.add('show');
-      startConfetti(1800);
-    }
+      if (t < 1){
+        requestAnimationFrame(frame);
+      } else {
+        // выбывает выбранный
+        eliminatedStack.push(pickedName);
+        participants.splice(idx, 1);
 
-    function closeWinner(){
-      modal.classList.remove('show');
-    }
+        // чуть “рандомим” угол чтобы не стояло идеально одинаково после перерисовки
+        angle = angle % (Math.PI*2);
 
-    function spin(){
-      if (spinning) return;
-      spinning = true;
-      spinBtn.disabled = true;
-      reshuffleBtn.disabled = true;
-      statusEl.textContent = "Крутим…";
-
-      const { name, idx } = pickWinner();
-      const start = angle;
-      const end = targetAngleForIndex(idx);
-
-      const duration = 6500; // ms
-      const startTime = performance.now();
-
-      function frame(now){
-        const t = Math.min(1, (now - startTime)/duration);
-        const e = easeOutCubic(t);
-        angle = start + (end - start) * e;
+        renderChips();
         drawWheel();
 
-        if (t < 1){
-          requestAnimationFrame(frame);
-        } else {
-          spinning = false;
-          spinBtn.disabled = false;
-          reshuffleBtn.disabled = false;
-          statusEl.textContent = "Готово. Победитель выбран.";
-          openWinner(name);
-        }
+        spinning = false;
+        reshuffleBtn.disabled = false;
+        resetBtn.disabled = false;
+
+        statusEl.textContent = `Выбыл: ${pickedName}. Осталось: ${participants.length}`;
+        openModal(pickedName, `❌ Выбыл из розыгрыша. Осталось участников: ${participants.length}`);
+
+        updateButtons();
+
+        // если остался 1 — он победитель
+        finalizeIfOneLeft();
       }
-      requestAnimationFrame(frame);
     }
 
-    spinBtn.addEventListener('click', spin);
-    reshuffleBtn.addEventListener('click', () => {
-      paletteSeed = Math.random()*1000;
-      drawWheel();
-    });
+    requestAnimationFrame(frame);
+  }
 
-    closeModal.addEventListener('click', closeWinner);
-    modal.addEventListener('click', (e) => { if(e.target === modal) closeWinner(); });
+  spinBtn.addEventListener('click', eliminateFlow);
 
-    spinAgain.addEventListener('click', () => {
-      closeWinner();
-      spin();
-    });
+  reshuffleBtn.addEventListener('click', () => {
+    paletteSeed = Math.random()*1000;
+    drawWheel();
+  });
 
-    copyWinner.addEventListener('click', async () => {
-      if(!lastWinner) return;
-      try{
-        await navigator.clipboard.writeText(lastWinner);
-        copyWinner.textContent = "Скопировано ✅";
-        setTimeout(() => copyWinner.textContent = "Скопировать ник", 1200);
-      }catch{
-        copyWinner.textContent = "Не удалось 😅";
-        setTimeout(() => copyWinner.textContent = "Скопировать ник", 1200);
-      }
-    });
+  undoBtn.addEventListener('click', () => {
+    if (spinning) return;
+    const last = eliminatedStack.pop();
+    if (!last) return;
+    participants.push(last);
+    renderChips();
+    drawWheel();
+    statusEl.textContent = `Вернули: ${last}. Участников: ${participants.length}`;
+    updateButtons();
+  });
 
-    // ----------------------------
-    // Confetti (lightweight)
-    // ----------------------------
-    const conf = document.getElementById('confetti');
-    const cctx = conf.getContext('2d');
-    let confetti = [];
-    let confettiRunning = false;
+  resetBtn.addEventListener('click', () => {
+    if (spinning) return;
+    participants = [...initialParticipants];
+    eliminatedStack = [];
+    angle = Math.random() * Math.PI * 2;
+    renderChips();
+    drawWheel();
+    statusEl.textContent = "Сброс. Готово.";
+    updateButtons();
+  });
 
-    function resizeConf(){
-      conf.width = window.innerWidth * devicePixelRatio;
-      conf.height = window.innerHeight * devicePixelRatio;
+  // Modal controls
+  closeModal.addEventListener('click', closeWinner);
+  modal.addEventListener('click', (e) => { if(e.target === modal) closeWinner(); });
+
+  spinAgain.addEventListener('click', () => {
+    closeWinner();
+    eliminateFlow();
+  });
+
+  copyWinner.addEventListener('click', async () => {
+    // в режиме выбывания копируем либо победителя (если он есть), либо последнее выбывшее имя (что на экране)
+    const text = (participants.length === 1) ? participants[0] : winnerName.textContent;
+    if(!text || text === "—") return;
+
+    try{
+      await navigator.clipboard.writeText(text);
+      copyWinner.textContent = "Скопировано ✅";
+      setTimeout(() => copyWinner.textContent = "Скопировать ник", 1200);
+    }catch{
+      copyWinner.textContent = "Не удалось 😅";
+      setTimeout(() => copyWinner.textContent = "Скопировать ник", 1200);
     }
-    window.addEventListener('resize', resizeConf);
-    resizeConf();
+  });
 
-    function startConfetti(ms=1500){
-      const count = 240;
-      confetti = [];
-      for(let i=0;i<count;i++){
-        confetti.push({
-          x: Math.random()*conf.width,
-          y: -20 - Math.random()*conf.height*0.3,
-          vx: (Math.random()-0.5)*2.2,
-          vy: 2 + Math.random()*5.0,
-          size: 6 + Math.random()*10,
-          rot: Math.random()*Math.PI,
-          vr: (Math.random()-0.5)*0.25,
-          hue: Math.random()*360
-        });
-      }
-      confettiRunning = true;
-      const start = performance.now();
+  updateButtons();
 
-      function tick(now){
+  // ----------------------------
+  // Confetti (lightweight)
+  // ----------------------------
+  const conf = document.getElementById('confetti');
+  const cctx = conf.getContext('2d');
+  let confetti = [];
+
+  function resizeConf(){
+    conf.width = window.innerWidth * devicePixelRatio;
+    conf.height = window.innerHeight * devicePixelRatio;
+  }
+  window.addEventListener('resize', resizeConf);
+  resizeConf();
+
+  function startConfetti(ms=1500){
+    const count = 240;
+    confetti = [];
+    for(let i=0;i<count;i++){
+      confetti.push({
+        x: Math.random()*conf.width,
+        y: -20 - Math.random()*conf.height*0.3,
+        vx: (Math.random()-0.5)*2.2,
+        vy: 2 + Math.random()*5.0,
+        size: 6 + Math.random()*10,
+        rot: Math.random()*Math.PI,
+        vr: (Math.random()-0.5)*0.25,
+        hue: Math.random()*360
+      });
+    }
+    const start = performance.now();
+
+    function tick(now){
+      cctx.clearRect(0,0,conf.width,conf.height);
+      confetti.forEach(p=>{
+        p.x += p.vx * devicePixelRatio;
+        p.y += p.vy * devicePixelRatio;
+        p.rot += p.vr;
+
+        cctx.save();
+        cctx.translate(p.x, p.y);
+        cctx.rotate(p.rot);
+        cctx.fillStyle = `hsla(${p.hue} 90% 60% / 0.95)`;
+        cctx.fillRect(-p.size/2, -p.size/2, p.size, p.size*0.7);
+        cctx.restore();
+      });
+      confetti = confetti.filter(p => p.y < conf.height + 60);
+
+      if (now - start < ms && confetti.length){
+        requestAnimationFrame(tick);
+      } else {
         cctx.clearRect(0,0,conf.width,conf.height);
-        confetti.forEach(p=>{
-          p.x += p.vx * devicePixelRatio;
-          p.y += p.vy * devicePixelRatio;
-          p.rot += p.vr;
-
-          cctx.save();
-          cctx.translate(p.x, p.y);
-          cctx.rotate(p.rot);
-          cctx.fillStyle = `hsla(${p.hue} 90% 60% / 0.95)`;
-          cctx.fillRect(-p.size/2, -p.size/2, p.size, p.size*0.7);
-          cctx.restore();
-        });
-        confetti = confetti.filter(p => p.y < conf.height + 60);
-
-        if (now - start < ms && confetti.length){
-          requestAnimationFrame(tick);
-        } else {
-          cctx.clearRect(0,0,conf.width,conf.height);
-          confettiRunning = false;
-        }
       }
-      requestAnimationFrame(tick);
     }
-  </script>
+    requestAnimationFrame(tick);
+  }
+</script>
+
 </body>
 </html>
